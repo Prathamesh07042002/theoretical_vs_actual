@@ -3,170 +3,135 @@ import streamlit.components.v1 as components
 
 GA_ID = "G-8DM8073S27"
 
+def _is_local() -> bool:
+    try:
+        headers = st.context.headers
+        host = headers.get("Host", "")
+        return (
+            "localhost" in host or
+            "127.0.0.1" in host or
+            "0.0.0.0"   in host
+        )
+    except Exception:
+        return False  # if headers not accessible, assume deployed
+
 
 def load_ga(app_name: str) -> None:
-    components.html(
-        f"""
-        <script>
-        (function() {{
-            const w = window.parent;
-            const host = w.location.hostname || "";
-            const href = w.location.href || "";
+    try:
+        if _is_local():
+            return  # skip entirely for localhost
 
-            const isLocal =
-                host === "localhost" ||
-                host === "127.0.0.1" ||
-                host === "0.0.0.0" ||
-                host.endsWith(".local") ||
-                href.includes("localhost");
+        components.html(
+            f"""
+            <script>
+            (function() {{
+                const w = window.parent;
 
-            if (isLocal) {{
-                console.log("GA skipped — local:", href);
-                return;
-            }}
-
-            let clientId = w.localStorage.getItem("custom_ga_user_id");
-            if (!clientId) {{
-                clientId = "user_" + Math.random().toString(36).slice(2) + "_" + Date.now();
-                w.localStorage.setItem("custom_ga_user_id", clientId);
-            }}
-
-            const existingScript = w.document.querySelector(
-                'script[src*="googletagmanager.com/gtag/js?id={GA_ID}"]'
-            );
-            if (!existingScript) {{
-                const s = w.document.createElement("script");
-                s.async = true;
-                s.src = "https://www.googletagmanager.com/gtag/js?id={GA_ID}";
-                w.document.head.appendChild(s);
-            }}
-
-            w.dataLayer = w.dataLayer || [];
-            function gtag() {{ w.dataLayer.push(arguments); }}
-            w.gtag = w.gtag || gtag;
-
-            if (!w.__ga_initialized__) {{
-                w.__ga_initialized__ = true;
-                setTimeout(() => {{
-                    w.gtag('js', new Date());
-                    w.gtag('config', '{GA_ID}', {{
-                        user_id:    clientId,
-                        app_name:   '{app_name}',
-                        page_title: '{app_name}'
-                    }});
-
-                    const loadKey = "ga_loaded_" + "{app_name}";
-                    if (!w.sessionStorage.getItem(loadKey)) {{
-                        w.gtag('event', 'app_loaded', {{
-                            app_name: '{app_name}',
-                            user_id:  clientId
-                        }});
-                        w.sessionStorage.setItem(loadKey, "true");
+                let clientId = null;
+                try {{
+                    clientId = w.localStorage.getItem("custom_ga_user_id");
+                    if (!clientId) {{
+                        clientId = "user_" + Math.random().toString(36).slice(2) + "_" + Date.now();
+                        w.localStorage.setItem("custom_ga_user_id", clientId);
                     }}
-                }}, 800);
-            }}
-        }})();
-        </script>
-        """,
-        height=0,
-    )
+                }} catch(e) {{
+                    clientId = "user_" + Math.random().toString(36).slice(2);
+                }}
+
+                try {{
+                    const existing = w.document.querySelector(
+                        'script[src*="googletagmanager.com/gtag/js?id={GA_ID}"]'
+                    );
+                    if (!existing) {{
+                        const s = w.document.createElement("script");
+                        s.async = true;
+                        s.src = "https://www.googletagmanager.com/gtag/js?id={GA_ID}";
+                        w.document.head.appendChild(s);
+                    }}
+                }} catch(e) {{
+                    console.warn("GA script injection failed:", e);
+                    return;
+                }}
+
+                try {{
+                    w.dataLayer = w.dataLayer || [];
+                    function gtag() {{ w.dataLayer.push(arguments); }}
+                    w.gtag = w.gtag || gtag;
+                }} catch(e) {{
+                    console.warn("GA dataLayer init failed:", e);
+                    return;
+                }}
+
+                if (!w.__ga_initialized__) {{
+                    w.__ga_initialized__ = true;
+                    setTimeout(() => {{
+                        try {{
+                            w.gtag('js', new Date());
+                            w.gtag('config', '{GA_ID}', {{
+                                user_id:    clientId,
+                                app_name:   '{app_name}',
+                                page_title: '{app_name}'
+                            }});
+
+                            const loadKey = "ga_loaded_{app_name}";
+                            if (!w.sessionStorage.getItem(loadKey)) {{
+                                w.gtag('event', 'app_loaded', {{
+                                    app_name: '{app_name}',
+                                    user_id:  clientId
+                                }});
+                                w.sessionStorage.setItem(loadKey, "true");
+                            }}
+                        }} catch(e) {{
+                            console.warn("GA config/event failed:", e);
+                        }}
+                    }}, 800);
+                }}
+            }})();
+            </script>
+            """,
+            height=0,
+        )
+    except Exception:
+        pass  # never crash the app due to GA
 
 
 def track_event(event_name: str, category: str, label: str = "") -> None:
-    event_name = event_name.replace("'", "\\'")
-    category   = category.replace("'", "\\'")
-    label      = label.replace("'", "\\'")
+    try:
+        if _is_local():
+            return  # skip entirely for localhost
 
-    components.html(
-        f"""
-        <script>
-        (function() {{
-            const w = window.parent;
-            const host = w.location.hostname || "";
-            const isLocal =
-                host === "localhost" ||
-                host === "127.0.0.1" ||
-                host === "0.0.0.0" ||
-                host.endsWith(".local") ||
-                (w.location.href || "").includes("localhost");
+        event_name = event_name.replace("'", "\\'")
+        category   = category.replace("'", "\\'")
+        label      = label.replace("'", "\\'")
 
-            if (isLocal || !w.gtag) return;
+        components.html(
+            f"""
+            <script>
+            (function() {{
+                try {{
+                    const w = window.parent;
 
-            let clientId = w.localStorage.getItem("custom_ga_user_id");
-            if (!clientId) {{
-                clientId = "user_" + Math.random().toString(36).slice(2) + "_" + Date.now();
-                w.localStorage.setItem("custom_ga_user_id", clientId);
-            }}
+                    if (!w.gtag) return;
 
-            w.gtag('event', '{event_name}', {{
-                event_category: '{category}',
-                event_label:    '{label}',
-                user_id:        clientId
-            }});
-        }})();
-        </script>
-        """,
-        height=0,
-    )
-# def load_ga(app_name: str) -> None:
-#     components.html(
-#         f"""
-#         <script>
-#         const host = window.parent.location.hostname;
-#         const isLocal =
-#             host === "localhost" ||
-#             host === "127.0.0.1" ||
-#             host === "0.0.0.0";
+                    let clientId = null;
+                    try {{
+                        clientId = w.localStorage.getItem("custom_ga_user_id") || "anonymous";
+                    }} catch(e) {{
+                        clientId = "anonymous";
+                    }}
 
-#         if (!isLocal) {{
-#             const existingScript = window.parent.document.querySelector(
-#                 'script[src*="googletagmanager.com/gtag/js?id={GA_ID}"]'
-#             );
-
-#             if (!existingScript) {{
-#                 const s = window.parent.document.createElement("script");
-#                 s.async = true;
-#                 s.src = "https://www.googletagmanager.com/gtag/js?id={GA_ID}";
-#                 window.parent.document.head.appendChild(s);
-#             }}
-
-#             window.parent.dataLayer = window.parent.dataLayer || [];
-#             function gtag() {{ window.parent.dataLayer.push(arguments); }}
-#             window.parent.gtag = window.parent.gtag || gtag;
-
-#             setTimeout(() => {{
-#                 window.parent.gtag('js', new Date());
-#                 window.parent.gtag('config', '{GA_ID}', {{
-#                     app_name: '{app_name}'
-#                 }});
-#                 window.parent.gtag('event', 'app_loaded', {{
-#                     app_name: '{app_name}'
-#                 }});
-#             }}, 1000);
-#         }}
-#         </script>
-#         """,
-#         height=0,
-#     )
-
-
-# def track_event(event_name: str, category: str, label: str = "") -> None:
-#     components.html(
-#         f"""
-#         <script>
-#         const host = window.parent.location.hostname;
-#         const isLocal =
-#             host === "localhost" ||
-#             host === "127.0.0.1" ||
-#             host === "0.0.0.0";
-
-#         if (!isLocal && window.parent.gtag) {{
-#             window.parent.gtag('event', '{event_name}', {{
-#                 event_category: '{category}',
-#                 event_label: '{label}'
-#             }});
-#         }}
-#         </script>
-#         """,
-#         height=0,
-#     )
+                    w.gtag('event', '{event_name}', {{
+                        event_category: '{category}',
+                        event_label:    '{label}',
+                        user_id:        clientId
+                    }});
+                }} catch(e) {{
+                    console.warn("GA track_event failed:", e);
+                }}
+            }})();
+            </script>
+            """,
+            height=0,
+        )
+    except Exception:
+        pass  # never crash the app due to GA
